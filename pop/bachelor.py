@@ -40,7 +40,8 @@ def cmd_start(args) -> str:
 
     # Kill any stale process on port 80
     ssh("pkill -f 'http.server 80' 2>/dev/null; sleep 1")
-    out = ssh("nohup python3 -m http.server 80 --directory /root > /var/log/bachelor.log 2>&1 & sleep 2 && ps aux | grep 'http.server' | grep -v grep")
+    ssh("mkdir -p /var/log && touch /var/log/bachelor.log 2>/dev/null")
+    out = ssh("nohup python3 -m http.server 80 --directory /root >> /var/log/bachelor.log 2>&1 & sleep 2 && ps aux | grep 'http.server' | grep -v grep")
     if "http.server" in out:
         pid = out.split()[1]
         return f"[OK] http.server started on port 80 (PID {pid})"
@@ -86,12 +87,15 @@ def cmd_health(args) -> str:
 
 def cmd_logs(args) -> str:
     """Get recent logs from VPS."""
+    # Ensure log dir exists first
+    ssh("mkdir -p /var/log && touch /var/log/bachelor.log 2>/dev/null")
     return ssh("tail -30 /var/log/bachelor.log")
 
 
 def cmd_exec(args) -> str:
     """Run a command on the VPS in the app directory."""
-    return ssh(f"cd {VPS_APP_DIR} && {args.command}")
+    cmd_str = " ".join(args.command)
+    return ssh(f"cd {VPS_APP_DIR} && {cmd_str}")
 
 
 def cmd_deploy(args) -> str:
@@ -163,7 +167,7 @@ def cmd_snapshots(args) -> str:
             size = parts[4]
             date = parts[7]
             time_ = parts[8]
-            fname = parts[8]
+            fname = parts[8].split("/")[-1]
             lines.append(f"  {size:>6}  {date} {time_}  {fname}")
     return "\n".join(lines)
 
@@ -187,7 +191,6 @@ def cmd_rollback(args) -> str:
         if not snap_path:
             return "[FAIL] No snapshots found.\nRun `pop bachelor snapshot` to create one first."
         snap_name = snap_path.split("/")[-1]
-        print(f"Using latest snapshot: {snap_name}")
 
     # Stop the server first
     stop_msg = cmd_stop(args)
