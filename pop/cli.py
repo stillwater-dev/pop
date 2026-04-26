@@ -8,6 +8,7 @@ from pathlib import Path
 from .server import Server
 from .config import load_config, list_configs
 from . import dreamwave
+from . import bachelor
 from .commands import run_command, run_playbook, upload_file
 from rich.console import Console
 from rich.table import Table
@@ -108,6 +109,7 @@ def main():
 
     # dreamwave
     dreamwave.register(sub)
+    bachelor.register(sub)
 
     args = parser.parse_args()
 
@@ -115,7 +117,7 @@ def main():
         cmd_list(args)
         return
 
-    if args.cmd == "dreamwave":
+    if args.cmd == "dreamwave" or args.cmd == "bachelor":
         result = args.fn(args)
         if result:
             console.print(result)

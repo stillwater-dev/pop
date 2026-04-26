@@ -96,3 +96,28 @@ pop dreamwave exec "command"   # run arbitrary command on VPS
 - **Domain**: `dream.lewd.win`
 - **Tracks**: 94 MP3s (~1.7GB) at `/var/www/dreamwave/tracks/`
 - **SSH key**: `/root/.ssh/id_ed25519`
+
+
+## Bachelor Party App Commands
+
+Bachelor Olympics app for the May 2026 Wilmington trip. Served on port 8765, accessible via localtunnel at `https://wilmington-bachelor.loca.lt`.
+
+```bash
+pop bachelor status          # check server + tunnel status
+pop bachelor start          # start HTTP server
+pop bachelor stop           # stop HTTP server
+pop bachelor restart        # restart HTTP server
+pop bachelor tunnel-start  # start localtunnel
+pop bachelor tunnel-stop   # stop localtunnel
+pop bachelor tunnel-restart
+pop bachelor full-restart  # server + tunnel
+pop bachelor health        # check app responds
+pop bachelor exec "ls js/" # run command in app dir
+```
+
+### Bachelor App Stack
+- **Local dev**: `python3 -m http.server 8765` from `/root/bachelor_party/`
+- **Tunnel**: localtunnel → `https://wilmington-bachelor.loca.lt`
+- **App dir**: `/root/bachelor_party/`
+- **Port**: 8765
+- **Tunnel port**: 7400 (lt proxies 8765 → public 443)
