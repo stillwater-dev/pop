@@ -128,6 +128,105 @@ def cmd_vps_status(args) -> str:
     return out
 
 
+SNAPSHOT_DIR = "/root/.bachelor_snapshots"
+
+
+def cmd_snapshot(args) -> str:
+    """Create a tarball snapshot of the VPS app directory."""
+    import datetime
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    name = f"snapshot_{ts}.tar.gz"
+    dest = f"{SNAPSHOT_DIR}/{name}"
+
+    # Ensure snapshot dir exists
+    ssh(f"mkdir -p {SNAPSHOT_DIR}")
+
+    # Create the snapshot
+    out = ssh(f"tar -czf {dest} -C /root bachelor_party 2>&1")
+    if "error" in out.lower() or "cannot" in out.lower():
+        return f"[FAIL] tar failed:\n{out}"
+
+    # Verify it exists and get size
+    verify = ssh(f"ls -lh {dest}")
+    return f"[OK] Snapshot created\n  {verify.strip()}"
+
+
+def cmd_snapshots(args) -> str:
+    """List available snapshots on VPS."""
+    out = ssh(f"ls -lh {SNAPSHOT_DIR}/snapshot_*.tar.gz 2>/dev/null")
+    if not out.strip():
+        return "No snapshots found."
+    lines = ["Snapshots available:", ""]
+    for line in out.strip().split("\n"):
+        parts = line.split()
+        if len(parts) >= 9:
+            size = parts[4]
+            date = parts[7]
+            time_ = parts[8]
+            fname = parts[8]
+            lines.append(f"  {size:>6}  {date} {time_}  {fname}")
+    return "\n".join(lines)
+
+
+def cmd_rollback(args) -> str:
+    """Restore VPS app directory from a snapshot tarball on the VPS."""
+    snapshot_dir = SNAPSHOT_DIR
+    if args.snapshot:
+        # Use a specific snapshot file
+        snap_path = f"{snapshot_dir}/snapshot_{args.snapshot}.tar.gz"
+        check = ssh(f"test -f {snap_path} && echo OK || echo MISSING")
+        if "MISSING" in check:
+            # Try exact name
+            snap_path = f"{snapshot_dir}/{args.snapshot}"
+            check = ssh(f"test -f {snap_path} && echo OK || echo MISSING")
+            if "MISSING" in check:
+                return f"[FAIL] Snapshot not found: {args.snapshot}\nRun `pop bachelor snapshots` to list available snapshots."
+    else:
+        # Find the latest snapshot
+        snap_path = ssh(f"ls -t {snapshot_dir}/snapshot_*.tar.gz 2>/dev/null | head -1").strip()
+        if not snap_path:
+            return "[FAIL] No snapshots found.\nRun `pop bachelor snapshot` to create one first."
+        snap_name = snap_path.split("/")[-1]
+        print(f"Using latest snapshot: {snap_name}")
+
+    # Stop the server first
+    stop_msg = cmd_stop(args)
+
+    # Extract snapshot over current app dir (blows away current state)
+    restore = ssh(f"tar -xzf {snap_path} -C /root 2>&1")
+    if "error" in restore.lower() or "cannot" in restore.lower():
+        return f"[FAIL] tar extract failed:\n{restore}"
+
+    # Restart
+    restart_msg = cmd_start(args)
+
+    return f"[OK] Rolled back from {snap_path.split('/')[-1]}\n{restart_msg}"
+
+
+def cmd_pull(args) -> str:
+    """Pull current VPS app state back to local repo (rsync VPS → local)."""
+    excludes = [
+        "--exclude=__pycache__",
+        "--exclude=*.pyc",
+        "--exclude=*.pyo",
+        "--exclude=.git",
+        "--exclude=tests/",
+        "--exclude=.pytest_cache",
+        "--exclude=*.log",
+    ]
+    cmd = [
+        "rsync", "-avz", "--delete",
+        "-e", f"ssh -i {SSH_KEY} -o StrictHostKeyChecking=no",
+    ] + excludes + [
+        f"root@{BACHELOR_HOST}:{VPS_APP_DIR}/",
+        f"{LOCAL_REPO}/"
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0:
+        return f"[OK] Pulled from VPS to local\n{result.stdout[-500:]}"
+    return f"[FAIL] rsync failed:\n{result.stderr[-300:]}"
+
+
 def register(subparsers):
     """Register bachelor subcommands."""
     p_bachelor = subparsers.add_parser("bachelor", help="Bachelor Party App — 5.181.177.113")
@@ -158,6 +257,19 @@ def register(subparsers):
     p_deploy = sub.add_parser("deploy", help="Deploy local repo to VPS via rsync + restart")
     p_deploy.set_defaults(fn=cmd_deploy)
     p_deploy.add_argument("--dry-run", action="store_true", help="Show what would be copied")
+
+    p_snapshot = sub.add_parser("snapshot", help="Create a tarball snapshot of current VPS app state")
+    p_snapshot.set_defaults(fn=cmd_snapshot)
+
+    p_snapshots = sub.add_parser("snapshots", help="List available snapshots on VPS")
+    p_snapshots.set_defaults(fn=cmd_snapshots)
+
+    p_rollback = sub.add_parser("rollback", help="Restore VPS app from a snapshot (default: latest)")
+    p_rollback.set_defaults(fn=cmd_rollback)
+    p_rollback.add_argument("snapshot", nargs="?", help="Snapshot name (e.g. 20250425_143022) or full filename")
+
+    p_pull = sub.add_parser("pull", help="Pull current VPS app state back to local repo (rsync VPS → local)")
+    p_pull.set_defaults(fn=cmd_pull)
 
     p_exec = sub.add_parser("exec", help="Run command on VPS in app dir")
     p_exec.add_argument("command", nargs="+", help="Command to run")
