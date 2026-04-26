@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .server import Server
 from .config import load_config, list_configs
+from . import dreamwave
 from .commands import run_command, run_playbook, upload_file
 from rich.console import Console
 from rich.table import Table
@@ -105,10 +106,19 @@ def main():
     p_deploy.add_argument("playbook", help="Playbook name or path")
     p_deploy.set_defaults(fn=cmd_deploy)
 
+    # dreamwave
+    dreamwave.register(sub)
+
     args = parser.parse_args()
 
     if args.cmd == "list":
         cmd_list(args)
+        return
+
+    if args.cmd == "dreamwave":
+        result = args.fn(args)
+        if result:
+            console.print(result)
         return
 
     fn = args.fn
