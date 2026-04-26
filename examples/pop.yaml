@@ -1,17 +1,11 @@
 # ~/.pop.yaml — pop deployment config
 servers:
-  - name: raff
-    host: <IP>
+  - name: bachelor
+    host: 5.181.177.113
     user: root
-    key: ~/.ssh/id_rsa
+    key: /root/.hermes/bachelor/bachelor_ed25519
 
-  - name: deluxhost
-    host: <IP>
+  - name: dreamwave
+    host: 38.45.71.55
     user: root
-    password: <password>
-
-  - name: georgedc
-    host: <IP>
-    user: root
-    key: ~/.ssh/id_rsa
-    port: 22
+    key: /root/.ssh/id_ed25519
