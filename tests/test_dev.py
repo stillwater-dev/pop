@@ -264,7 +264,7 @@ def test_doctor_reports_container_health_and_missing_tools():
             return "__HERMES_EXIT__1"
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    with patch.object(dev, "ssh", side_effect=fake_ssh):
+    with patch.object(dev, "_container_exists", return_value=True), patch.object(dev, "ssh", side_effect=fake_ssh):
         result = dev.cmd_doctor(make_args())
 
     assert "Container: pop_dev [RUNNING]" in result
@@ -298,7 +298,7 @@ def test_doctor_marks_tools_missing_on_docker_exec_error():
             return "__HERMES_EXIT__127Error response from daemon: container is not running"
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    with patch.object(dev, "ssh", side_effect=fake_ssh):
+    with patch.object(dev, "_container_exists", return_value=True), patch.object(dev, "ssh", side_effect=fake_ssh):
         result = dev.cmd_doctor(make_args())
 
     assert "Container: pop_dev [DOWN]" in result
