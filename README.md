@@ -10,6 +10,34 @@ pip install .
 pip install -e .
 ```
 
+## CI/CD
+
+GitHub Actions now handles two automation paths:
+
+- `CI` on every push to `main`, every pull request, and manual `workflow_dispatch`
+- `Release` on tags matching `v*` and manual `workflow_dispatch`
+
+The CI workflow runs:
+
+```bash
+python -m pip install -e .[dev]
+python -m pytest -q tests/test_dev.py tests/test_dreamwave.py tests/test_bachelor.py
+python -m compileall pop tests
+python -m pop.cli --help
+python -m build --sdist --wheel
+```
+
+It also publishes package artifacts from `dist/` and includes a stable `required-checks` gate job so branch protection can later target one fixed check name.
+
+To cut a release, create and push a semantic tag such as `v0.1.1`:
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+That release workflow builds the wheel and source distribution, uploads them as workflow artifacts, and attaches them to a GitHub Release automatically. A manual `Release` run without a tag input performs build-only verification and uploads artifacts, but skips GitHub Release creation.
+
 ## Config
 
 Create `~/.pop.yaml`:
@@ -70,7 +98,6 @@ Variables: `{{ var_name }}` or `{{var_name}}` — both work.
 
 Default: `~/.pop.yaml`
 Override: `pop -c /path/to/config.yaml ...`
-
 
 ## DREAMWAVE FM Commands
 
