@@ -1,0 +1,13 @@
+vars:
+  app_dir: /var/www/app
+  domain: example.com
+
+steps:
+  - name: Install Nginx
+    command: apt-get update && apt-get install -y nginx certbot python3-certbot-nginx
+  - name: Enable Nginx
+    command: systemctl enable nginx && systemctl start nginx
+  - name: Create app directory
+    command: mkdir -p {{ app_dir }}
+  - name: Setup firewall
+    command: ufw allow 80/tcp && ufw allow 443/tcp

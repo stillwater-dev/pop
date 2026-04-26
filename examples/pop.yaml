@@ -1,0 +1,17 @@
+# ~/.pop.yaml — pop deployment config
+servers:
+  - name: raff
+    host: <IP>
+    user: root
+    key: ~/.ssh/id_rsa
+
+  - name: deluxhost
+    host: <IP>
+    user: root
+    password: <password>
+
+  - name: georgedc
+    host: <IP>
+    user: root
+    key: ~/.ssh/id_rsa
+    port: 22

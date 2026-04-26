@@ -1,0 +1,13 @@
+vars:
+  app_dir: /opt/app
+  repo_url: ""
+  branch: main
+
+steps:
+  - name: Install prerequisites
+    command: apt-get update && apt-get install -y curl git
+  - name: Create app directory
+    command: mkdir -p {{ app_dir }}
+  - name: Clone repository
+    command: cd {{ app_dir }} && git clone -b {{ branch }} {{ repo_url }} .
+    cwd: {{ app_dir }}

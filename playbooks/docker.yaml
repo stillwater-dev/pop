@@ -1,0 +1,15 @@
+vars:
+  app_dir: /opt/app
+  docker_user: ubuntu
+
+steps:
+  - name: Install Docker
+    command: curl -fsSL https://get.docker.com | sh
+  - name: Enable Docker service
+    command: systemctl enable docker
+  - name: Add user to docker group
+    command: usermod -aG docker {{ docker_user }}
+  - name: Install Docker Compose
+    command: curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
+  - name: Create app directory
+    command: mkdir -p {{ app_dir }}

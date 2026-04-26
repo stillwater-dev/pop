@@ -1,0 +1,15 @@
+vars:
+  ssh_port: 22
+  ssh_user: root
+
+steps:
+  - name: Update system
+    command: apt-get update && apt-get upgrade -y
+  - name: Install essential packages
+    command: apt-get install -y curl wget git ufw fail2ban
+  - name: Setup firewall
+    command: ufw default deny incoming && ufw default allow outgoing && ufw allow {{ ssh_port }}/tcp
+  - name: Enable firewall
+    command: ufw --force enable
+  - name: Set timezone
+    command: timedatectl set-timezone UTC
