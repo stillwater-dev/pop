@@ -162,6 +162,22 @@ def test_restart_calls_stop_then_start():
             assert "Started" in result
 
 
+def test_restart_prefixes_fail_when_start_fails():
+    with patch.object(bachelor, "cmd_stop", return_value="[OK] Stopped"), patch.object(bachelor, "cmd_start", return_value="[FAIL] Could not start server"):
+        result = bachelor.cmd_restart(make_args())
+
+    assert result.startswith("[FAIL] Restart failed")
+    assert "[FAIL] Could not start server" in result
+
+
+def test_restart_prefixes_fail_when_stop_warns():
+    with patch.object(bachelor, "cmd_stop", return_value="[WARN] Process still running (PID 123)"), patch.object(bachelor, "cmd_start", return_value="Already running (PID 123)"):
+        result = bachelor.cmd_restart(make_args())
+
+    assert result.startswith("[FAIL] Restart failed")
+    assert "[WARN] Process still running" in result
+
+
 # ---------------------------------------------------------------------------
 # cmd_health
 # ---------------------------------------------------------------------------
@@ -190,7 +206,7 @@ def test_health_no_title():
 def test_health_fail():
     with patch("urllib.request.urlopen", side_effect=Exception("Connection refused")):
         result = bachelor.cmd_health(make_args())
-        assert "FAIL" in result
+        assert result == "[FAIL] Connection refused"
 
 
 # ---------------------------------------------------------------------------

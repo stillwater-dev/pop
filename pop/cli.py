@@ -17,6 +17,15 @@ from rich.table import Table
 console = Console()
 
 
+def _normalize_result(result):
+    if hasattr(result, "output") and hasattr(result, "exit_code"):
+        return result.output, result.exit_code
+    if isinstance(result, str):
+        exit_code = 1 if result.startswith("[FAIL]") else 0
+        return result, exit_code
+    return result, 0
+
+
 def cmd_connect(args):
     srv = Server.from_config(args.config, args.name)
     srv.connect()
@@ -121,8 +130,11 @@ def main():
 
     if args.cmd == "dreamwave" or args.cmd == "bachelor" or args.cmd == "dev":
         result = args.fn(args)
-        if result:
-            console.print(result)
+        output, exit_code = _normalize_result(result)
+        if output:
+            console.print(output)
+        if exit_code:
+            raise SystemExit(exit_code)
         return
 
     fn = args.fn

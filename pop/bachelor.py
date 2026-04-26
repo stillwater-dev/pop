@@ -66,7 +66,10 @@ def cmd_restart(args) -> str:
     """Restart http.server on VPS."""
     stop = cmd_stop(args)
     start = cmd_start(args)
-    return f"{stop}\n{start}"
+    combined = f"{stop}\n{start}"
+    if stop.startswith("[FAIL]") or stop.startswith("[WARN]") or start.startswith("[FAIL]"):
+        return f"[FAIL] Restart failed\n{combined}"
+    return combined
 
 
 def cmd_health(args) -> str:
@@ -82,7 +85,7 @@ def cmd_health(args) -> str:
             title = "(no title)"
         return f"OK: HTTP {resp.status}\nTitle: {title}"
     except Exception as e:
-        return f"FAIL: {e}"
+        return f"[FAIL] {e}"
 
 
 def cmd_logs(args) -> str:
@@ -122,6 +125,8 @@ def cmd_deploy(args) -> str:
         if getattr(args, "dry_run", False):
             return out + "\n[DRY RUN] — no restart performed"
         restart = cmd_restart(args)
+        if restart.startswith("[FAIL]"):
+            return f"[FAIL] Deploy sync completed but restart failed\n{out}\n{restart}"
         return out + "\n" + restart
     return f"[FAIL] rsync failed:\n{result.stderr[-300:]}"
 
@@ -202,6 +207,8 @@ def cmd_rollback(args) -> str:
 
     # Restart
     restart_msg = cmd_start(args)
+    if restart_msg.startswith("[FAIL]"):
+        return f"[FAIL] Rollback restored files but restart failed\n{restart_msg}"
 
     return f"[OK] Rolled back from {snap_path.split('/')[-1]}\n{restart_msg}"
 
