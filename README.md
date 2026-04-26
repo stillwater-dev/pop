@@ -70,3 +70,29 @@ Variables: `{{ var_name }}` or `{{var_name}}` — both work.
 
 Default: `~/.pop.yaml`
 Override: `pop -c /path/to/config.yaml ...`
+
+
+## DREAMWAVE FM Commands
+
+DREAMWAVE FM is a vaporwave web radio app deployed at `38.45.71.55`. The `pop dreamwave` subcommand manages it directly — no config file needed.
+
+```bash
+pop dreamwave status           # backend + nginx status
+pop dreamwave restart          # restart backend service
+pop dreamwave logs -n 50       # tail backend logs
+pop dreamwave reload           # reload nginx
+pop dreamwave tracks -n 20     # list tracks on VPS
+pop dreamwave deploy-tracks    # deploy from /root/vaporwave-radio/tracks/
+pop dreamwave deploy-tracks /path/to/local/tracks/  # custom source
+pop dreamwave health          # API health check
+pop dreamwave exec "command"   # run arbitrary command on VPS
+```
+
+### DREAMWAVE Stack
+- **VPS**: 38.45.71.55 (Little Creek)
+- **Frontend**: nginx → `/var/www/dreamwave/` (static files)
+- **Backend**: FastAPI on port 8001 (systemd `dreamwave-backend`)
+- **Database**: PostgreSQL
+- **Domain**: `dream.lewd.win`
+- **Tracks**: 94 MP3s (~1.7GB) at `/var/www/dreamwave/tracks/`
+- **SSH key**: `/root/.ssh/id_ed25519`
