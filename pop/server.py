@@ -11,9 +11,6 @@ from scp import SCPClient
 from .config import get_server_config
 from .commands import run_playbook as _run_playbook, load_playbook
 
-if TYPE_CHECKING:
-    from .commands import "Server"
-
 
 class Server:
     """Represents a remote VPS server."""
