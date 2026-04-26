@@ -96,17 +96,29 @@ def cmd_exec(args) -> str:
 
 def cmd_deploy(args) -> str:
     """Deploy latest bachelor_party files from local repo to VPS via rsync."""
-    result = subprocess.run(
-        [
-            "rsync", "-avz", "--delete",
-            "-e", f"ssh -i {SSH_KEY} -o StrictHostKeyChecking=no",
-            f"{LOCAL_REPO}/",
-            f"root@{BACHELOR_HOST}:{VPS_APP_DIR}/"
-        ],
-        capture_output=True, text=True
-    )
+    excludes = [
+        "--exclude=__pycache__",
+        "--exclude=*.pyc",
+        "--exclude=*.pyo",
+        "--exclude=.git",
+        "--exclude=tests/",
+        "--exclude=.pytest_cache",
+        "--exclude=*.log",
+    ]
+    cmd = [
+        "rsync", "-avz", "--delete",
+        "-e", f"ssh -i {SSH_KEY} -o StrictHostKeyChecking=no",
+    ] + excludes + [
+        f"{LOCAL_REPO}/",
+        f"root@{BACHELOR_HOST}:{VPS_APP_DIR}/"
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
-        return f"[OK] Deployed to VPS\n{result.stdout[-500:]}"
+        out = f"[OK] Deployed to VPS\n{result.stdout[-500:]}"
+        if getattr(args, "dry_run", False):
+            return out + "\n[DRY RUN] — no restart performed"
+        restart = cmd_restart(args)
+        return out + "\n" + restart
     return f"[FAIL] rsync failed:\n{result.stderr[-300:]}"
 
 
@@ -143,9 +155,9 @@ def register(subparsers):
     p_vps_status = sub.add_parser("vps-status", help="Full VPS status (disk/uptime/app)")
     p_vps_status.set_defaults(fn=cmd_vps_status)
 
-    p_rsync = sub.add_parser("rsync", help="Rsync local repo to VPS")
-    p_rsync.set_defaults(fn=cmd_deploy)
-    p_rsync.add_argument("--dry-run", action="store_true", help="Show what would be copied")
+    p_deploy = sub.add_parser("deploy", help="Deploy local repo to VPS via rsync + restart")
+    p_deploy.set_defaults(fn=cmd_deploy)
+    p_deploy.add_argument("--dry-run", action="store_true", help="Show what would be copied")
 
     p_exec = sub.add_parser("exec", help="Run command on VPS in app dir")
     p_exec.add_argument("command", nargs="+", help="Command to run")
