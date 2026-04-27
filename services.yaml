@@ -1,0 +1,51 @@
+# pop services configuration
+# Each service defines its own pop commands, host, deploy paths, etc.
+# Drop new service YAML files in this directory and they auto-register in pop.
+
+services:
+  hermes-library:
+    name: Hermés Library
+    host: 10.0.69.236
+    user: root
+    key: /root/.ssh/id_ed25519
+    port: 22
+    container: hermes-library
+    health_url: http://localhost:8081/api/health
+    local_repo: /root/hermes-library
+    stack_dir: /opt/stacks/hermes-library
+    deploy:
+      frontend:
+        - src: frontend/styles.css
+          dst: /app/frontend/styles.css
+        - src: frontend/app.js
+          dst: /app/frontend/app.js
+        - src: frontend/index.html
+          dst: /app/frontend/index.html
+      backend:
+        - src: backend/main.py
+          dst: /app/main.py
+      extensions:
+        - src: backend/extensions/
+          dst: /app/extensions/
+    restart: docker restart hermes-library
+    post_deploy:
+      - sleep 3
+      - curl -s http://localhost:8081/api/health
+
+  dreamwave:
+    name: DREAMWAVE FM
+    host: 38.45.71.55
+    user: root
+    key: /root/.ssh/id_ed25519
+    port: 22
+    local_repo: /root/vaporwave-radio
+    deploy_path: /var/www/dreamwave
+    restart: systemctl reload nginx
+
+  bachelor:
+    name: Bachelor Party App
+    host: 5.181.177.113
+    user: root
+    key: /root/.ssh/id_ed25519
+    port: 22
+    health_url: http://localhost:8765/health

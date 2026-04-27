@@ -10,6 +10,7 @@ from .config import load_config, list_configs
 from . import dreamwave
 from . import bachelor
 from . import dev
+from . import hermes
 from .commands import run_command, run_playbook, upload_file
 from rich.console import Console
 from rich.table import Table
@@ -121,6 +122,7 @@ def main():
     dreamwave.register(sub)
     bachelor.register(sub)
     dev.register(sub)
+    hermes.add_hermes_subparser(sub)
 
     args = parser.parse_args()
 
@@ -128,17 +130,20 @@ def main():
         cmd_list(args)
         return
 
-    if args.cmd == "dreamwave" or args.cmd == "bachelor" or args.cmd == "dev":
-        result = args.fn(args)
+    if args.cmd == "dreamwave" or args.cmd == "bachelor" or args.cmd == "dev" or args.cmd == "hermes":
+        result = args.fn(args) if hasattr(args, 'fn') else args.func(args)
         output, exit_code = _normalize_result(result)
-        if output:
-            console.print(output)
-        if exit_code:
-            raise SystemExit(exit_code)
+        if output: console.print(output)
+        if exit_code: raise SystemExit(exit_code)
         return
 
-    fn = args.fn
-    fn(args)
+    if hasattr(args, 'fn'):
+        fn = args.fn
+        fn(args)
+    elif hasattr(args, 'func'):
+        args.func(args)
+    else:
+        console.print("[red]Unknown command[/red]")
 
 
 if __name__ == "__main__":
