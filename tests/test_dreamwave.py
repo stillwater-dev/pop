@@ -50,14 +50,14 @@ def test_deploy_tracks_uses_batch_safe_rsync_transport():
 
 
 def test_tracks_reports_failure_when_listing_fails():
-    with patch.object(dreamwave, "ssh", return_value=""):
+    with patch.object(dreamwave, "ssh_result", return_value=(0, "")):
         result = dreamwave.cmd_tracks(make_args())
 
     assert result == "[FAIL] Could not list tracks"
 
 
 def test_status_prefixes_ssh_failure():
-    with patch.object(dreamwave, "ssh", return_value="Permission denied (publickey)."):
+    with patch.object(dreamwave, "ssh_result", return_value=(0, "Permission denied (publickey).")):
         result = dreamwave.cmd_status(make_args())
 
     assert result.startswith("[FAIL]")
@@ -65,7 +65,7 @@ def test_status_prefixes_ssh_failure():
 
 
 def test_restart_prefixes_remote_failure():
-    with patch.object(dreamwave, "ssh", return_value="Job for dreamwave-backend.service failed because the control process exited with error code."):
+    with patch.object(dreamwave, "ssh_result", return_value=(0, "Job for dreamwave-backend.service failed because the control process exited with error code.")):
         result = dreamwave.cmd_restart(make_args())
 
     assert result.startswith("[FAIL]")
@@ -73,7 +73,7 @@ def test_restart_prefixes_remote_failure():
 
 
 def test_logs_prefixes_remote_query_failure():
-    with patch.object(dreamwave, "ssh", return_value="Unit dreamwave-backend.service could not be found."):
+    with patch.object(dreamwave, "ssh_result", return_value=(0, "Unit dreamwave-backend.service could not be found.")):
         result = dreamwave.cmd_logs(make_args())
 
     assert result.startswith("[FAIL]")
@@ -82,18 +82,38 @@ def test_logs_prefixes_remote_query_failure():
 
 def test_logs_preserve_benign_not_found_log_lines():
     line = "2026-04-25T12:00:00 api cache not found for key user:123"
-    with patch.object(dreamwave, "ssh", return_value=line):
+    with patch.object(dreamwave, "ssh_result", return_value=(0, line)):
         result = dreamwave.cmd_logs(make_args())
 
     assert result == line
 
 
 def test_tracks_prefixes_remote_query_failure():
-    with patch.object(dreamwave, "ssh", return_value="ls: cannot access '/var/www/dreamwave/tracks/*.mp3': No such file or directory"):
+    with patch.object(dreamwave, "ssh_result", return_value=(0, "ls: cannot access '/var/www/dreamwave/tracks/*.mp3': No such file or directory")):
         result = dreamwave.cmd_tracks(make_args())
 
     assert result.startswith("[FAIL]")
     assert "cannot access" in result
+
+
+def test_status_fails_on_nonzero_exit_without_matching_markers():
+    """Status returns [FAIL] when SSH exits non-zero, even if the output doesn't match failure markers."""
+    benign = "some benign unexpected output"
+    with patch.object(dreamwave, "ssh_result", return_value=(1, benign)):
+        result = dreamwave.cmd_status(make_args())
+
+    assert result.startswith("[FAIL]")
+    assert benign in result
+
+
+def test_status_passes_on_zero_exit_without_matching_markers():
+    """Status returns raw output when SSH exits 0 and output doesn't match failure markers."""
+    benign = "dreamwave-backend.service - DREAMWAVE FM Backend\n   Active: active (running)"
+    with patch.object(dreamwave, "ssh_result", return_value=(0, benign)):
+        result = dreamwave.cmd_status(make_args())
+
+    assert result == benign
+    assert not result.startswith("[FAIL]")
 
 
 # ---------------------------------------------------------------------------

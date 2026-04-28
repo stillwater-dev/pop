@@ -399,13 +399,12 @@ def cmd_doctor(args) -> str:
             lines.append("Applied fixes: skipped because container is missing")
         return "\n".join(lines)
 
-    running = _container_running()
     if inspect_error:
-        image = "(ssh probe failed)"
-        restart = inspect_error
-    else:
-        image = _clean(ssh(f"docker inspect -f '{{{{.Config.Image}}}}' {CONTAINER} 2>&1"))
-        restart = _clean(ssh(f"docker inspect -f '{{{{.HostConfig.RestartPolicy.Name}}}}' {CONTAINER} 2>&1"))
+        return f"[FAIL] Could not inspect container existence:\n{inspect_error}"
+
+    running = _container_running()
+    image = _clean(ssh(f"docker inspect -f '{{{{.Config.Image}}}}' {CONTAINER} 2>&1"))
+    restart = _clean(ssh(f"docker inspect -f '{{{{.HostConfig.RestartPolicy.Name}}}}' {CONTAINER} 2>&1"))
 
     lines = [
         f"Container: {CONTAINER} [{'RUNNING' if running else 'DOWN'}]",

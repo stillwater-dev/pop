@@ -55,21 +55,25 @@ def _strip_ssh_noise(text: str) -> str:
 
 
 def ssh(host: str, cmd: str, capture: bool = True) -> Optional[str]:
-    """Run a command on the DREAMWAVE VPS via SSH."""
+    """Run a command on the DREAMWAVE VPS via SSH and return combined output."""
+    _, output = ssh_result(host, cmd)
+    return output
+
+
+def ssh_result(host: str, cmd: str) -> tuple[int, Optional[str]]:
+    """Run a command on the DREAMWAVE VPS via SSH and return exit code + output."""
     full_cmd = [
         "ssh", "-i", DREAMWAVE_KEY,
         *SSH_OPTIONS,
         f"{DREAMWAVE_USER}@{host}",
         cmd
     ]
-    result = subprocess.run(full_cmd, capture_output=capture, text=True)
-    if capture:
-        stdout = _strip_ssh_noise(result.stdout)
-        stderr = _strip_ssh_noise(result.stderr)
-        if stdout and stderr:
-            return f"{stdout}\n{stderr}"
-        return stdout or stderr
-    return None
+    result = subprocess.run(full_cmd, capture_output=True, text=True)
+    stdout = _strip_ssh_noise(result.stdout)
+    stderr = _strip_ssh_noise(result.stderr)
+    if stdout and stderr:
+        return result.returncode, f"{stdout}\n{stderr}"
+    return result.returncode, stdout or stderr
 
 
 def _looks_like_failure(output: Optional[str], markers: tuple[str, ...]) -> bool:
@@ -94,65 +98,70 @@ def _fail_prefix(output: Optional[str], fallback: str) -> str:
     return f"[FAIL] {cleaned}"
 
 
-def _result_or_fail(output: Optional[str], *, failure_markers: tuple[str, ...], empty_failure: str | None = None, empty_success: str | None = None) -> str:
+def _result_or_fail(output: Optional[str], *, failure_markers: tuple[str, ...], empty_failure: str | None = None, empty_success: str | None = None, exit_code: int = 0) -> str:
     cleaned = _strip_ssh_noise(output or "").strip()
     if not cleaned:
         if empty_failure is not None:
             return empty_failure
         return empty_success or ""
-    if _looks_like_failure(cleaned, failure_markers):
+    if exit_code != 0 or _looks_like_failure(cleaned, failure_markers):
         return _fail_prefix(cleaned, empty_failure or "[FAIL] Remote command failed")
     return cleaned
 
 
 def cmd_status(args) -> str:
     """Check backend and nginx status."""
-    out = ssh(DREAMWAVE_HOST, "systemctl status dreamwave-backend --no-pager -l; echo '---'; systemctl status nginx --no-pager -l | head -10")
+    exit_code, out = ssh_result(DREAMWAVE_HOST, "systemctl status dreamwave-backend --no-pager -l; echo '---'; systemctl status nginx --no-pager -l | head -10")
     return _result_or_fail(
         out,
         failure_markers=SSH_FAILURE_MARKERS + REMOTE_COMMAND_FAILURE_MARKERS,
         empty_failure="[FAIL] Could not connect to DREAMWAVE VPS",
+        exit_code=exit_code,
     )
 
 
 def cmd_restart(args) -> str:
     """Restart the backend service."""
-    out = ssh(DREAMWAVE_HOST, "systemctl restart dreamwave-backend && systemctl status dreamwave-backend --no-pager | head -20")
+    exit_code, out = ssh_result(DREAMWAVE_HOST, "systemctl restart dreamwave-backend && systemctl status dreamwave-backend --no-pager | head -20")
     return _result_or_fail(
         out,
         failure_markers=SSH_FAILURE_MARKERS + REMOTE_COMMAND_FAILURE_MARKERS,
         empty_success="Restart command sent",
+        exit_code=exit_code,
     )
 
 
 def cmd_logs(args) -> str:
     """Tail backend logs."""
     lines = args.lines
-    out = ssh(DREAMWAVE_HOST, f"journalctl -u dreamwave-backend --no-pager -n {lines}")
+    exit_code, out = ssh_result(DREAMWAVE_HOST, f"journalctl -u dreamwave-backend --no-pager -n {lines}")
     return _result_or_fail(
         out,
         failure_markers=LOG_QUERY_FAILURE_MARKERS,
         empty_failure="[FAIL] Could not fetch logs",
+        exit_code=exit_code,
     )
 
 
 def cmd_reload(args) -> str:
     """Reload nginx."""
-    out = ssh(DREAMWAVE_HOST, "nginx -t && systemctl reload nginx")
+    exit_code, out = ssh_result(DREAMWAVE_HOST, "nginx -t && systemctl reload nginx")
     return _result_or_fail(
         out,
         failure_markers=SSH_FAILURE_MARKERS + REMOTE_COMMAND_FAILURE_MARKERS,
         empty_success="Reload command sent",
+        exit_code=exit_code,
     )
 
 
 def cmd_tracks(args) -> str:
     """List tracks on the VPS."""
-    out = ssh(DREAMWAVE_HOST, f"ls {DREAMWAVE_PATH}/tracks/*.mp3 | head {args.limit} && echo '---' && ssh {DREAMWAVE_USER}@{DREAMWAVE_HOST} 'ls {DREAMWAVE_PATH}/tracks/*.mp3 | wc -l'")
+    exit_code, out = ssh_result(DREAMWAVE_HOST, f"ls {DREAMWAVE_PATH}/tracks/*.mp3 | head {args.limit} && echo '---' && ssh {DREAMWAVE_USER}@{DREAMWAVE_HOST} 'ls {DREAMWAVE_PATH}/tracks/*.mp3 | wc -l'")
     return _result_or_fail(
         out,
         failure_markers=TRACKS_QUERY_FAILURE_MARKERS,
         empty_failure="[FAIL] Could not list tracks",
+        exit_code=exit_code,
     )
 
 

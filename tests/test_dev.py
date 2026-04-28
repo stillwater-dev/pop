@@ -370,6 +370,17 @@ def test_doctor_reports_missing_container_cleanly():
     assert "Restart policy: (container missing)" in result
 
 
+def test_doctor_fails_early_on_ssh_probe_error():
+    """Doctor returns [FAIL] immediately when container probe fails, without calling _container_running."""
+    with patch.object(dev, "_container_exists", side_effect=RuntimeError("SSH probe failed with exit 255")), \
+         patch.object(dev, "_container_running") as mock_running:
+        result = dev.cmd_doctor(make_args())
+
+    assert result.startswith("[FAIL] Could not inspect container existence:")
+    assert "SSH probe failed with exit 255" in result
+    mock_running.assert_not_called()
+
+
 def test_cli_uses_command_result_exit_code(monkeypatch):
     printed = []
 
