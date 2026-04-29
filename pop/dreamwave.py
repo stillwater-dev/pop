@@ -222,7 +222,6 @@ def cmd_deploy(args) -> str:
         "--exclude=.pytest_cache",
         "--exclude=.DS_Store",
         "--exclude=.env",
-        "--exclude=assets/",
         "--exclude=backend/",
         "--exclude=fallback/",
         "--exclude=migrations/",
