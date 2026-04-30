@@ -111,13 +111,30 @@ def _result_or_fail(output: Optional[str], *, failure_markers: tuple[str, ...], 
 
 def cmd_status(args) -> str:
     """Check backend and nginx status."""
-    exit_code, out = ssh_result(DREAMWAVE_HOST, "systemctl status dreamwave-backend --no-pager -l; echo '---'; systemctl status nginx --no-pager -l | head -10")
-    return _result_or_fail(
-        out,
-        failure_markers=SSH_FAILURE_MARKERS + REMOTE_COMMAND_FAILURE_MARKERS,
-        empty_failure="[FAIL] Could not connect to DREAMWAVE VPS",
-        exit_code=exit_code,
-    )
+    # Use is-active for a clean pass/fail check (no log noise)
+    exit_code, backend_out = ssh_result(DREAMWAVE_HOST, "systemctl is-active dreamwave-backend")
+    exit_code2, nginx_out = ssh_result(DREAMWAVE_HOST, "systemctl is-active nginx")
+
+    backend_ok = backend_out.strip() == "active"
+    nginx_ok = nginx_out.strip() == "active"
+
+    if backend_ok and nginx_ok:
+        return f"[OK] dreamwave-backend: active\n[OK] nginx: active"
+
+    # Something is wrong — fetch detailed status for diagnosis
+    lines = []
+    if not backend_ok:
+        lines.append(f"[FAIL] dreamwave-backend: {backend_out.strip() or 'unknown'}")
+        _, detail = ssh_result(DREAMWAVE_HOST, "systemctl status dreamwave-backend --no-pager -l | head -20")
+        if detail:
+            lines.append(detail)
+    if not nginx_ok:
+        lines.append(f"[FAIL] nginx: {nginx_out.strip() or 'unknown'}")
+        _, detail = ssh_result(DREAMWAVE_HOST, "systemctl status nginx --no-pager -l | head -20")
+        if detail:
+            lines.append(detail)
+
+    return "\n".join(lines)
 
 
 def cmd_restart(args) -> str:
@@ -218,115 +235,67 @@ def cmd_deploy(args) -> str:
         "--exclude=__pycache__",
         "--exclude=*.pyc",
         "--exclude=*.pyo",
-        "--exclude=*.log",
-        "--exclude=.pytest_cache",
-        "--exclude=.DS_Store",
+        "--exclude=node_modules",
         "--exclude=.env",
         "--exclude=backend/",
-        "--exclude=fallback/",
-        "--exclude=migrations/",
-        "--exclude=server/",
         "--exclude=tracks/",
+        "--exclude=*.db",
+        "--exclude=*.sqlite3",
+        "--exclude=__pycache__",
+        "--exclude=.pytest_cache",
+        "--exclude=*.log",
     ]
-
     cmd = [
-        "rsync", "-avz",
+        "rsync", "-avz", "--delete",
         "-e", RSYNC_SSH,
     ] + excludes + [
         f"{local_repo}/",
         f"{DREAMWAVE_USER}@{DREAMWAVE_HOST}:{DREAMWAVE_PATH}/"
     ]
-
-    if dry_run:
-        cmd.insert(1, "--dry-run")
-
     result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        return f"[FAIL] Deploy failed:\n{result.stderr[-1000:]}"
-
-    summary = result.stdout[-1500:] if result.stdout else "(no rsync output)"
-    if dry_run:
-        return f"[DRY RUN] DREAMWAVE deploy preview\n{summary}"
-
-    reload_out = ssh(DREAMWAVE_HOST, "nginx -t && systemctl reload nginx") or ""
-    if _looks_like_failure(reload_out, SSH_FAILURE_MARKERS) or _looks_like_failure(reload_out, REMOTE_COMMAND_FAILURE_MARKERS):
-        return f"[FAIL] Deploy uploaded files but nginx reload failed\n{summary}\n---\n{reload_out}"
-
-    import urllib.request
-    try:
-        req = urllib.request.Request(
-            "https://dream.lewd.win",
-            headers={"User-Agent": "Mozilla/5.0 (Hermes pop deploy check)"},
-        )
-        resp = urllib.request.urlopen(req, timeout=10)
-        frontend = f"Frontend OK: HTTP {resp.status}"
-    except Exception as e:
-        return f"[FAIL] Deploy uploaded files and reloaded nginx, but frontend check failed: {e}\n{summary}\n---\n{reload_out}"
-
-    return f"[OK] Deployed DREAMWAVE frontend\n{summary}\n---\n{reload_out or 'nginx reload command sent'}\n---\n{frontend}"
-
-
-def cmd_health(args) -> str:
-    """Check API health endpoint."""
-    import urllib.request
-    try:
-        resp = urllib.request.urlopen(f"http://{DREAMWAVE_HOST}/api/health", timeout=5)
-        return f"API OK: {resp.read().decode()}"
-    except Exception as e:
-        return f"[FAIL] API health check failed: {e}"
-
-
-def cmd_exec(args) -> str:
-    """Run arbitrary command on DREAMWAVE VPS."""
-    out = ssh(DREAMWAVE_HOST, args.command)
-    return out or "Command produced no output"
+    if result.returncode == 0:
+        out = f"[OK] Deployed to DREAMWAVE VPS\n{result.stdout[-500:]}"
+        if dry_run:
+            return out + "\n[DRY RUN] — no restart performed"
+        reload = cmd_reload(args)
+        if reload.startswith("[FAIL]"):
+            return f"[FAIL] Deploy sync completed but reload failed\n{out}\n{reload}"
+        return out + "\n" + reload
+    return f"[FAIL] rsync failed:\n{result.stderr[-300:]}"
 
 
 def register(subparsers):
-    """Register DREAMWAVE subcommands."""
-    p_dw = subparsers.add_parser("dreamwave", help="DREAMWAVE FM management")
-    p_dw.set_defaults(fn=lambda a: p_dw.print_help())
+    """Register dreamwave subcommands."""
+    p_dreamwave = subparsers.add_parser("dreamwave", help="DREAMWAVE FM — 38.45.71.55")
 
-    sub = p_dw.add_subparsers(dest="dw_cmd", required=True)
+    sub = p_dreamwave.add_subparsers(dest="dw_cmd", required=True)
 
-    # status
-    p_status = sub.add_parser("status", help="Check backend + nginx status")
+    p_status = sub.add_parser("status", help="Check backend and nginx status")
     p_status.set_defaults(fn=cmd_status)
 
-    # restart
-    p_restart = sub.add_parser("restart", help="Restart backend service")
+    p_restart = sub.add_parser("restart", help="Restart the backend service")
     p_restart.set_defaults(fn=cmd_restart)
 
-    # logs
     p_logs = sub.add_parser("logs", help="Tail backend logs")
-    p_logs.add_argument("-n", "--lines", default=30, help="Number of lines")
+    p_logs.add_argument("-n", "--lines", type=int, default=30, dest="lines",
+                        help="Number of lines to tail")
     p_logs.set_defaults(fn=cmd_logs)
 
-    # reload
     p_reload = sub.add_parser("reload", help="Reload nginx")
     p_reload.set_defaults(fn=cmd_reload)
 
-    # tracks
-    p_tracks = sub.add_parser("tracks", help="List tracks on VPS")
-    p_tracks.add_argument("-n", "--limit", default=20, help="Max tracks to show")
+    p_tracks = sub.add_parser("tracks", help="List tracks on the VPS")
+    p_tracks.add_argument("-l", "--limit", type=int, default=20, dest="limit",
+                          help="Max tracks to list")
     p_tracks.set_defaults(fn=cmd_tracks)
 
-    # deploy-tracks
-    p_dt = sub.add_parser("deploy-tracks", help="Deploy tracks from local directory to VPS")
-    p_dt.add_argument("local", nargs="?", default="/root/vaporwave-radio/tracks", help="Local tracks directory")
-    p_dt.set_defaults(fn=cmd_deploy_tracks)
+    p_deploy_tracks = sub.add_parser("deploy-tracks", help="Deploy tracks from local to VPS")
+    p_deploy_tracks.add_argument("local", nargs="?", default="/root/vaporwave-radio/tracks",
+                                 help="Local tracks directory")
+    p_deploy_tracks.set_defaults(fn=cmd_deploy_tracks)
 
-    # deploy frontend
-    p_deploy = sub.add_parser("deploy", help="Deploy DREAMWAVE frontend files to VPS")
-    p_deploy.add_argument("local", nargs="?", default=LOCAL_REPO, help="Local DREAMWAVE repo directory")
-    p_deploy.add_argument("--dry-run", action="store_true", help="Preview rsync changes without uploading")
+    p_deploy = sub.add_parser("deploy", help="Deploy frontend files from local repo to VPS")
+    p_deploy.add_argument("local", nargs="?", default="/root/vaporwave-radio",
+                          help="Local repo directory")
+    p_deploy.add_argument("--dry-run", action="store_true", help="Show what would be copied")
     p_deploy.set_defaults(fn=cmd_deploy)
-
-    # health
-    p_health = sub.add_parser("health", help="Check API health endpoint")
-    p_health.set_defaults(fn=cmd_health)
-
-    # exec
-    p_exec = sub.add_parser("exec", help="Run arbitrary command on VPS")
-    p_exec.add_argument("command", help="Command to run")
-    p_exec.set_defaults(fn=cmd_exec)

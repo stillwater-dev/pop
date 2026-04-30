@@ -22,60 +22,51 @@ def ssh(cmd: str) -> str:
 
 
 def cmd_status(args) -> str:
-    """Check app status on VPS."""
-    out = ssh("ps aux | grep 'http.server' | grep -v grep")
-    if "http.server" in out:
-        pid = out.split()[1]
-        return f"[OK] http.server running (PID {pid})\n  URL: http://5.181.177.113/bachelor_party_app.html"
-    return "[DOWN] http.server not running"
+    """Check app status on VPS via systemd."""
+    out = ssh("systemctl is-active bachelor-party 2>&1")
+    if "active" in out:
+        pid_out = ssh("systemctl show bachelor-party -p MainPID --value").strip()
+        return f"[OK] bachelor-party running (PID {pid_out})\n  URL: http://5.181.177.113/"
+    return f"[DOWN] bachelor-party not running: {out.strip()}"
 
 
 def cmd_start(args) -> str:
-    """Start http.server on VPS (port 80, serving /root)."""
+    """Start bachelor-party service on VPS via systemd."""
     # Check if already running
-    out = ssh("ps aux | grep 'http.server' | grep -v grep")
-    if "http.server" in out:
-        pid = out.split()[1]
-        return f"Already running (PID {pid})"
+    out = ssh("systemctl is-active bachelor-party 2>&1")
+    if "active" in out:
+        pid_out = ssh("systemctl show bachelor-party -p MainPID --value").strip()
+        return f"Already running (PID {pid_out})"
 
-    # Kill any stale process on port 80
+    # Kill any legacy http.server and restart via systemd
     ssh("pkill -f 'http.server 80' 2>/dev/null; sleep 1")
-    ssh("mkdir -p /var/log && touch /var/log/bachelor.log 2>/dev/null")
-    out = ssh("nohup python3 -m http.server 80 --directory /root >> /var/log/bachelor.log 2>&1 & sleep 2 && ps aux | grep 'http.server' | grep -v grep")
-    if "http.server" in out:
-        pid = out.split()[1]
-        return f"[OK] http.server started on port 80 (PID {pid})"
-    return "[FAIL] Could not start server"
+    out = ssh("systemctl restart bachelor-party 2>&1 && sleep 2 && systemctl is-active bachelor-party")
+    if "active" in out:
+        pid_out = ssh("systemctl show bachelor-party -p MainPID --value")
+        return f"[OK] bachelor-party running (PID {pid_out.strip()})"
+    return f"[FAIL] Could not start server: {out}"
 
 
 def cmd_stop(args) -> str:
-    """Stop http.server on VPS."""
-    out = ssh("ps aux | grep 'http.server' | grep -v grep")
-    if "http.server" not in out:
-        return "http.server not running"
-    pid = out.strip().split()[1]
-    ssh(f"kill {pid}")
-    time.sleep(1)
-    out2 = ssh("ps aux | grep 'http.server' | grep -v grep")
-    if "http.server" in out2:
-        return f"[WARN] Process still running (PID {out2.split()[1]})"
-    return f"[OK] Stopped (was PID {pid})"
-
+    """Stop bachelor-party via systemd."""
+    out = ssh("systemctl stop bachelor-party 2>&1 && sleep 1 && systemctl is-active bachelor-party 2>&1")
+    if "inactive" in out or "failed" in out:
+        return f"[OK] Stopped"
+    return f"[WARN] Service still {out.strip()}"
 
 def cmd_restart(args) -> str:
-    """Restart http.server on VPS."""
-    stop = cmd_stop(args)
-    start = cmd_start(args)
-    combined = f"{stop}\n{start}"
-    if stop.startswith("[FAIL]") or stop.startswith("[WARN]") or start.startswith("[FAIL]"):
-        return f"[FAIL] Restart failed\n{combined}"
-    return combined
+    """Restart bachelor-party via systemd."""
+    out = ssh("systemctl restart bachelor-party 2>&1 && sleep 2 && systemctl is-active bachelor-party")
+    if "active" in out:
+        pid_out = ssh("systemctl show bachelor-party -p MainPID --value")
+        return f"[OK] Restarted (PID {pid_out.strip()})"
+    return f"[FAIL] Restart failed: {out}"
 
 
 def cmd_health(args) -> str:
     """Check if app responds."""
     try:
-        resp = urllib.request.urlopen("http://5.181.177.113/bachelor_party_app.html", timeout=5)
+        resp = urllib.request.urlopen("http://5.181.177.113/", timeout=5)
         html = resp.read().decode()[:300]
         title_start = html.find("<title>")
         title_end = html.find("</title>")
@@ -133,7 +124,7 @@ def cmd_deploy(args) -> str:
 
 def cmd_vps_status(args) -> str:
     """Full VPS status: disk, uptime, app."""
-    out = ssh("df -h / && echo '---' && uptime && echo '---' && ps aux | grep 'http.server' | grep -v grep")
+    out = ssh("df -h / && echo '---' && uptime && echo '---' && systemctl status bachelor-party --no-pager | head -8")
     return out
 
 
@@ -246,13 +237,13 @@ def register(subparsers):
     p_status = sub.add_parser("status", help="Check app status")
     p_status.set_defaults(fn=cmd_status)
 
-    p_start = sub.add_parser("start", help="Start http.server on VPS")
+    p_start = sub.add_parser("start", help="Start bachelor-party service on VPS")
     p_start.set_defaults(fn=cmd_start)
 
-    p_stop = sub.add_parser("stop", help="Stop http.server on VPS")
+    p_stop = sub.add_parser("stop", help="Stop bachelor-party service on VPS")
     p_stop.set_defaults(fn=cmd_stop)
 
-    p_restart = sub.add_parser("restart", help="Restart http.server")
+    p_restart = sub.add_parser("restart", help="Restart bachelor-party service")
     p_restart.set_defaults(fn=cmd_restart)
 
     p_health = sub.add_parser("health", help="Check if app responds")
