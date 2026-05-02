@@ -63,7 +63,12 @@ def test_start_creates_container_with_correct_mounts():
             return "__HERMES_EXIT__0"
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    with patch.object(dev, "ssh", side_effect=fake_ssh), patch.object(dev, "ssh_result", return_value=(0, "1")):
+    def fake_ssh_result(cmd):
+        if cmd.startswith("docker inspect -f '{{.State.Running}}'"):
+            return 1, "Error: No such object: pop_dev"
+        return 0, "1"
+
+    with patch.object(dev, "ssh", side_effect=fake_ssh), patch.object(dev, "ssh_result", side_effect=fake_ssh_result):
         result = dev.cmd_start(make_args())
 
     create_cmd = next(cmd for cmd in calls if cmd.startswith("docker run -d"))
@@ -137,7 +142,8 @@ def test_ps_rejects_missing_container():
 
 
 def test_ps_surfaces_missing_ps_binary_as_fail():
-    with patch.object(dev, "_container_exists", return_value=True), patch.object(dev, "ssh", return_value="ps missing -- run pop dev doctor --fix"):
+    with patch.object(dev, "_container_exists", return_value=True), \
+         patch.object(dev, "ssh_result", return_value=(0, "ps missing -- run pop dev doctor --fix")):
         result = dev.cmd_ps(make_args())
 
     assert result == "[FAIL] ps missing -- run pop dev doctor --fix"
@@ -278,8 +284,6 @@ def test_doctor_reports_container_health_and_missing_tools():
 
 def test_doctor_marks_tools_missing_on_docker_exec_error():
     def fake_ssh(cmd):
-        if cmd.startswith("docker inspect -f '{{.State.Running}}'"):
-            return "false"
         if cmd.startswith("docker inspect -f '{{.Config.Image}}'"):
             return "python:3.13-slim"
         if cmd.startswith("docker inspect -f '{{.HostConfig.RestartPolicy.Name}}'"):
@@ -298,7 +302,14 @@ def test_doctor_marks_tools_missing_on_docker_exec_error():
             return "__HERMES_EXIT__127Error response from daemon: container is not running"
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    with patch.object(dev, "_container_exists", return_value=True), patch.object(dev, "ssh", side_effect=fake_ssh):
+    def fake_ssh_result(cmd):
+        if cmd.startswith("docker inspect -f '{{.State.Running}}'"):
+            return 0, "false"
+        return 0, ""
+
+    with patch.object(dev, "_container_exists", return_value=True), \
+         patch.object(dev, "ssh", side_effect=fake_ssh), \
+         patch.object(dev, "ssh_result", side_effect=fake_ssh_result):
         result = dev.cmd_doctor(make_args())
 
     assert "Container: pop_dev [DOWN]" in result

@@ -91,8 +91,30 @@ def _exit_code(out: str, marker: str = "__HERMES_EXIT__") -> int | None:
     return int("".join(digits)) if digits else None
 
 
+_SSH_FAILURE_MARKERS = (
+    "host key verification failed",
+    "permission denied",
+    "could not resolve hostname",
+    "connection refused",
+    "connection timed out",
+    "no route to host",
+    "operation timed out",
+)
+
+
 def _container_running() -> bool:
-    return _clean(ssh(f"docker inspect -f '{{{{.State.Running}}}}' {CONTAINER} 2>&1")) == "true"
+    exit_code, out = ssh_result(f"docker inspect -f '{{{{.State.Running}}}}' {CONTAINER} 2>&1")
+    cleaned = _clean(out)
+    # Distinguish SSH failures from docker-level errors
+    lower = cleaned.lower()
+    if any(marker in lower for marker in _SSH_FAILURE_MARKERS):
+        raise RuntimeError(f"SSH to VPS failed: {cleaned}")
+    if exit_code != 0:
+        # Docker returned non-zero — container likely doesn't exist
+        return False
+    if cleaned not in ("true", "false"):
+        raise RuntimeError(f"Unexpected container state response: {cleaned or '(empty)'}")
+    return cleaned == "true"
 
 
 def _container_exists() -> bool:
@@ -289,13 +311,15 @@ def cmd_ps(args) -> str:
         return f"[FAIL] Could not inspect container existence:\n{exc}"
     if not exists:
         return f"[FAIL] Container {CONTAINER} does not exist"
-    out = ssh(
+    exit_code, out = ssh_result(
         f"docker exec {CONTAINER} sh -lc 'if command -v ps >/dev/null 2>&1; "
         f"then ps aux; else echo ps missing -- run pop dev doctor --fix; fi'"
     )
     cleaned = _clean(out)
     if cleaned.startswith("ps missing --"):
         return f"[FAIL] {cleaned}"
+    if exit_code != 0:
+        return f"[FAIL] ps failed with exit {exit_code}: {cleaned or '(empty)'}"
     return out
 
 

@@ -18,11 +18,28 @@ from rich.table import Table
 console = Console()
 
 
+# SSH failure markers — if these appear anywhere in output, it's a failure
+_BROAD_FAILURE_MARKERS = (
+    "host key verification failed",
+    "remote host identification has changed",
+    "permission denied",
+    "could not resolve hostname",
+    "connection refused",
+    "connection timed out",
+    "no route to host",
+    "operation timed out",
+)
+
+
 def _normalize_result(result):
     if hasattr(result, "output") and hasattr(result, "exit_code"):
         return result.output, result.exit_code
     if isinstance(result, str):
-        exit_code = 1 if result.startswith("[FAIL]") else 0
+        lowered = result.lower()
+        has_fail = result.startswith("[FAIL]") or any(
+            marker in lowered for marker in _BROAD_FAILURE_MARKERS
+        )
+        exit_code = 1 if has_fail else 0
         return result, exit_code
     return result, 0
 
