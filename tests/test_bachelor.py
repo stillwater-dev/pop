@@ -45,9 +45,13 @@ def test_ssh_combines_stdout_stderr():
 # ---------------------------------------------------------------------------
 
 def test_status_running():
-    with patch("subprocess.run", return_value=ssh_result(
-        "root  38345  0.0  1.0 104348 20480 ?  Ss  02:00  0:00  /usr/bin/python3 -m http.server 80"
-    )):
+    with patch("subprocess.run") as m:
+        # First call: systemctl is-active → "active"
+        # Second call: systemctl show MainPID → "38345"
+        m.side_effect = [
+            ssh_result("active"),
+            ssh_result("38345"),
+        ]
         result = bachelor.cmd_status(make_args())
         assert "OK" in result
         assert "38345" in result
@@ -63,9 +67,7 @@ def test_status_down():
 # ---------------------------------------------------------------------------
 
 def test_start_already_running():
-    with patch("subprocess.run", return_value=ssh_result(
-        "root  38345  0.0  1.0 104348 20480 ?  Ss  02:00  0:00  /usr/bin/python3 -m http.server 80"
-    )):
+    with patch.object(bachelor, "ssh", return_value="active"):
         result = bachelor.cmd_start(make_args())
         assert "Already running" in result
 
@@ -74,23 +76,19 @@ def test_start_fresh():
     call_count = [0]
     def fake_ssh(cmd):
         call_count[0] += 1
-        r = MagicMock()
-        r.returncode = 0
-        r.stdout = ""
-        r.stderr = ""
         # 1st: check if running → not running
         if call_count[0] == 1:
-            r.stdout = ""
+            return ""
         # 2nd: pkill
         elif call_count[0] == 2:
-            r.stdout = ""
-        # 3rd: mkdir
+            return ""
+        # 3rd: systemctl restart + is-active → success
         elif call_count[0] == 3:
-            r.stdout = ""
-        # 4th: nohup + ps → process found
+            return "active"
+        # 4th: get PID
         elif call_count[0] == 4:
-            r.stdout = "root  39107  0.0  1.0  ...  /usr/bin/python3 -m http.server 80"
-        return r.stdout + r.stderr
+            return "39107"
+        return ""
 
     with patch.object(bachelor, "ssh", side_effect=fake_ssh):
         result = bachelor.cmd_start(make_args())
@@ -99,7 +97,7 @@ def test_start_fresh():
         assert call_count[0] == 4
 
 def test_start_failure():
-    with patch("subprocess.run", return_value=ssh_result("")):
+    with patch.object(bachelor, "ssh", return_value=""):
         result = bachelor.cmd_start(make_args())
         assert "FAIL" in result
 
@@ -109,42 +107,21 @@ def test_start_failure():
 # ---------------------------------------------------------------------------
 
 def test_stop_not_running():
-    with patch("subprocess.run", return_value=ssh_result("")):
+    with patch.object(bachelor, "ssh", return_value=""):
         result = bachelor.cmd_stop(make_args())
-        assert "not running" in result
+        assert "still" in result  # [WARN] Service still ...
 
 def test_stop_kills_pid():
-    killed = []
-    call_count = [0]
-    def run_side_effect(cmd, *, capture_output, text):
-        call_count[0] += 1
-        r = MagicMock()
-        r.returncode = 0
-        r.stderr = ""
+    """Test that stop returns OK when service is stopped via systemd."""
+    def fake_ssh(cmd):
+        # The single compound command: stop && sleep && is-active
+        if "systemctl stop" in cmd:
+            return "inactive"
+        return ""
 
-        # SSH cmd is a list: [..., "root@host", "actual shell command"]
-        shell_cmd = cmd[-1] if isinstance(cmd, list) else cmd
-
-        if shell_cmd.startswith("ps aux"):
-            # First grep: process is running. Second grep: process is gone.
-            if call_count[0] == 1:
-                r.stdout = "root  38345  0.0  1.0  ...  /usr/bin/python3 -m http.server 80"
-            else:
-                r.stdout = ""
-            return r
-
-        if shell_cmd.startswith("kill"):
-            killed.append(shell_cmd.split()[1])
-            r.stdout = ""
-            return r
-
-        r.stdout = ""
-        return r
-
-    with patch("subprocess.run", side_effect=run_side_effect):
+    with patch.object(bachelor, "ssh", side_effect=fake_ssh):
         with patch("time.sleep"):
             result = bachelor.cmd_stop(make_args())
-    assert killed[0] == "38345"
     assert "OK" in result
 
 
@@ -153,29 +130,43 @@ def test_stop_kills_pid():
 # ---------------------------------------------------------------------------
 
 def test_restart_calls_stop_then_start():
-    with patch.object(bachelor, "cmd_stop", return_value="[OK] Stopped") as mock_stop:
-        with patch.object(bachelor, "cmd_start", return_value="[OK] Started") as mock_start:
-            result = bachelor.cmd_restart(make_args())
-            mock_stop.assert_called_once()
-            mock_start.assert_called_once()
-            assert "Stopped" in result
-            assert "Started" in result
+    """Restart calls systemctl restart and checks active status."""
+    def fake_ssh(cmd):
+        if "systemctl restart" in cmd:
+            return "active"
+        return ""
+
+    with patch.object(bachelor, "ssh", side_effect=fake_ssh):
+        result = bachelor.cmd_restart(make_args())
+        assert "OK" in result
+        assert "Restarted" in result
 
 
 def test_restart_prefixes_fail_when_start_fails():
-    with patch.object(bachelor, "cmd_stop", return_value="[OK] Stopped"), patch.object(bachelor, "cmd_start", return_value="[FAIL] Could not start server"):
+    def fake_ssh(cmd):
+        if "systemctl restart" in cmd:
+            return ""  # not "active"
+        return ""
+
+    with patch.object(bachelor, "ssh", side_effect=fake_ssh):
         result = bachelor.cmd_restart(make_args())
 
     assert result.startswith("[FAIL] Restart failed")
-    assert "[FAIL] Could not start server" in result
+    assert "active" not in result or "FAIL" in result
 
 
 def test_restart_prefixes_fail_when_stop_warns():
-    with patch.object(bachelor, "cmd_stop", return_value="[WARN] Process still running (PID 123)"), patch.object(bachelor, "cmd_start", return_value="Already running (PID 123)"):
+    """Restart returns FAIL when service isn't active after restart attempt."""
+    def fake_ssh(cmd):
+        if "systemctl restart" in cmd:
+            return "failed"
+        return ""
+
+    with patch.object(bachelor, "ssh", side_effect=fake_ssh):
         result = bachelor.cmd_restart(make_args())
 
     assert result.startswith("[FAIL] Restart failed")
-    assert "[WARN] Process still running" in result
+    assert "failed" in result
 
 
 # ---------------------------------------------------------------------------

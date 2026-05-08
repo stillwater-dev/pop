@@ -191,12 +191,17 @@ def cmd_deploy_tracks(args) -> str:
     if check.returncode != 0:
         return f"[FAIL] Local tracks directory not found: {local_tracks}"
 
-    count = subprocess.run(["ls", f"{local_tracks}/*.mp3"], shell=True, capture_output=True, text=True)
-    mp3_count = len([l for l in count.stdout.strip().split("\n") if l.endswith(".mp3")])
+    # Count local MP3s — use pathlib to avoid shell glob issues
+    from pathlib import Path
+    local_path = Path(local_tracks)
+    mp3s = list(local_path.glob("*.mp3"))
+    mp3_count = len(mp3s)
 
-    # rsync tracks to VPS
+    # rsync tracks to VPS — force include MP3/JPG even if gitignored locally
+    # Order: traverse dirs first, then includes, then exclude
     cmd = [
-        "rsync", "-avz", "--progress",
+        "rsync", "-avz",
+        "--include=*/", "--include=*.mp3", "--include=*.jpg", "--include=*.jpeg", "--exclude=*",
         "-e", RSYNC_SSH,
         f"{local_tracks}/",
         f"{DREAMWAVE_USER}@{DREAMWAVE_HOST}:{DREAMWAVE_PATH}/tracks/"

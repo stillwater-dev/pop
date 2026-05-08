@@ -1,6 +1,7 @@
 """Hermés Library management commands for pop."""
 
 import subprocess
+from pathlib import Path
 from typing import Optional
 
 HERMES_HOST = "10.0.69.236"
@@ -83,7 +84,6 @@ def status() -> str:
 
 def deploy(frontend: bool = True, backend: bool = True, extensions: bool = True, full: bool = False) -> str:
     """Deploy Hermés Library changes to the VPS."""
-    from pathlib import Path
     local = Path(LOCAL_REPO)
     if not local.exists():
         return _fail(f"Local repo not found: {LOCAL_REPO}")

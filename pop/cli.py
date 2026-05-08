@@ -11,6 +11,7 @@ from . import dreamwave
 from . import bachelor
 from . import dev
 from . import hermes
+from . import __version__
 from .commands import run_command, run_playbook, upload_file
 from rich.console import Console
 from rich.table import Table
@@ -79,6 +80,13 @@ def cmd_deploy(args):
     console.print(result)
 
 
+def cmd_hello(args):
+    if args.name:
+        console.print(f"Hello, {args.name}!")
+    else:
+        console.print("Hello, World!")
+
+
 def cmd_list(args):
     configs = list_configs(args.config)
     if not configs:
@@ -104,10 +112,19 @@ def main():
         description="pop — pop your code onto a VPS",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("-c", "--config", default="~/.pop.yaml", help="Config file path")
+    parser.add_argument(
+        "-c", "--config", default="~/.pop.yaml", help="Config file path"
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"pop {__version__}"
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("list", help="List configured servers")
+
+    p_hello = sub.add_parser("hello", help="Say hello")
+    p_hello.add_argument("name", nargs="?", help="Optional name to greet")
+    p_hello.set_defaults(fn=cmd_hello)
 
     p_connect = sub.add_parser("connect", help="Interactive SSH connect")
     p_connect.add_argument("name", help="Server name from config")
