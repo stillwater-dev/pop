@@ -213,7 +213,9 @@ def test_bootstrap_refreshes_running_container_and_returns_doctor_summary():
             return "__HERMES_EXIT__0"
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    with patch.object(dev, "ssh", side_effect=fake_ssh):
+    with patch.object(dev, "ssh", side_effect=fake_ssh), \
+         patch.object(dev, "_container_running", return_value=True), \
+         patch.object(dev, "_container_exists", return_value=True):
         result = dev.cmd_bootstrap(make_args())
 
     assert "[OK] Container pop_dev already running; bootstrap refreshed" in result
@@ -270,7 +272,7 @@ def test_doctor_reports_container_health_and_missing_tools():
             return "__HERMES_EXIT__1"
         raise AssertionError(f"Unexpected command: {cmd}")
 
-    with patch.object(dev, "_container_exists", return_value=True), patch.object(dev, "ssh", side_effect=fake_ssh):
+    with patch.object(dev, "_container_exists", return_value=True), patch.object(dev, "ssh", side_effect=fake_ssh), patch.object(dev, "ssh_result", side_effect=lambda cmd: (0, fake_ssh(cmd))):
         result = dev.cmd_doctor(make_args())
 
     assert "Container: pop_dev [RUNNING]" in result
